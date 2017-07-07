@@ -408,6 +408,7 @@ ngx_mail_add_addrs(ngx_conf_t *cf, ngx_mail_port_t *mport,
 #if (NGX_MAIL_SSL)
         addrs[i].conf.ssl = addr[i].opt.ssl;
 #endif
+        addrs[i].conf.proxy_protocol = addr[i].opt.proxy_protocol;
 
         len = ngx_sock_ntop(&addr[i].opt.sockaddr.sockaddr, addr[i].opt.socklen,
                             buf, NGX_SOCKADDR_STRLEN, 1);
@@ -457,6 +458,7 @@ ngx_mail_add_addrs6(ngx_conf_t *cf, ngx_mail_port_t *mport,
 #if (NGX_MAIL_SSL)
         addrs6[i].conf.ssl = addr[i].opt.ssl;
 #endif
+        addrs6[i].conf.proxy_protocol = addr[i].opt.proxy_protocol;
 
         len = ngx_sock_ntop(&addr[i].opt.sockaddr.sockaddr, addr[i].opt.socklen,
                             buf, NGX_SOCKADDR_STRLEN, 1);

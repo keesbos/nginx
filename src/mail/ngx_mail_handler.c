@@ -12,7 +12,7 @@
 
 
 static void ngx_mail_init_session(ngx_connection_t *c);
-
+static void ngx_mail_proxy_protocol_handler(ngx_event_t *rev);
 #if (NGX_MAIL_SSL)
 static void ngx_mail_ssl_init_connection(ngx_ssl_t *ssl, ngx_connection_t *c);
 static void ngx_mail_ssl_handshake_handler(ngx_connection_t *c);
@@ -143,6 +143,7 @@ ngx_mail_init_connection(ngx_connection_t *c)
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "*%uA client %*s connected to %V",
                   c->number, len, text, s->addr_text);
 
+    s->proxy_protocol = addr_conf->proxy_protocol;
     ctx = ngx_palloc(c->pool, sizeof(ngx_mail_log_ctx_t));
     if (ctx == NULL) {
         ngx_mail_close_connection(c);
@@ -165,16 +166,11 @@ ngx_mail_init_connection(ngx_connection_t *c)
 
     sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
 
+    s->ssl = 0;
     if (sslcf->enable) {
-        c->log->action = "SSL handshaking";
-
-        ngx_mail_ssl_init_connection(&sslcf->ssl, c);
-        return;
-    }
-
-    if (addr_conf->ssl) {
-
-        c->log->action = "SSL handshaking";
+        s->ssl = 1;
+    } else if (addr_conf->ssl) {
+        s->ssl = 1;
 
         if (sslcf->ssl.ctx == NULL) {
             ngx_log_error(NGX_LOG_ERR, c->log, 0,
@@ -183,11 +179,78 @@ ngx_mail_init_connection(ngx_connection_t *c)
             ngx_mail_close_connection(c);
             return;
         }
+    }
 
-        ngx_mail_ssl_init_connection(&sslcf->ssl, c);
+    }
+#endif
+
+    if (s->proxy_protocol) {
+        c->log->action = "reading PROXY protocol";
+        ngx_add_timer(c->read, cscf->timeout);
+        c->read->handler = ngx_mail_proxy_protocol_handler;
+        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+            ngx_mail_close_connection(c);
+        }
         return;
     }
 
+#if (NGX_MAIL_SSL)
+    if (s->ssl) {
+        ngx_mail_ssl_conf_t  *sslcf;
+        c->log->action = "SSL handshaking";
+        sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
+        ngx_mail_ssl_init_connection(&sslcf->ssl, c);
+        return;
+    }
+# endif
+
+    ngx_mail_init_session(c);
+}
+
+
+void
+ngx_mail_proxy_protocol_handler(ngx_event_t *rev)
+{
+    u_char                    *p, buf[NGX_PROXY_PROTOCOL_MAX_HEADER + 1];
+    size_t                     size;
+    ssize_t                    n;
+    ngx_err_t                  err;
+    ngx_connection_t          *c;
+    ngx_mail_session_t   *s;
+
+    size = sizeof(buf);
+    c = rev->data;
+
+    n = recv(c->fd, (char *) buf, size, MSG_PEEK);
+    err = ngx_socket_errno;
+
+    if (n == -1) {
+        ngx_connection_error(c, err, "recv() failed");
+        ngx_mail_close_connection(c);
+        return;
+    }
+    p = ngx_proxy_protocol_read(c, buf, buf + n);
+    if (p == NULL) {
+        ngx_mail_close_connection(c);
+        return;
+    }
+    size = p - buf;
+    if (c->recv(c, buf, size) != (ssize_t) size) {
+        ngx_mail_close_connection(c);
+        return;
+    }
+    s = c->data;
+    s->proxy_protocol = 0;
+
+#if (NGX_MAIL_SSL)
+    {
+    ngx_mail_ssl_conf_t  *sslcf;
+    if (s->ssl) {
+        c->log->action = "SSL handshaking";
+        sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
+        ngx_mail_ssl_init_connection(&sslcf->ssl, c);
+        return;
+    }
     }
 #endif
 
@@ -222,16 +285,26 @@ ngx_mail_ssl_init_connection(ngx_ssl_t *ssl, ngx_connection_t *c)
     ngx_mail_session_t        *s;
     ngx_mail_core_srv_conf_t  *cscf;
 
+    s = c->data;
+    cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
+
+    if (s->proxy_protocol) {
+        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Has proxy_protocol");
+        c->log->action = "reading PROXY protocol";
+        ngx_add_timer(c->read, cscf->timeout);
+        c->read->handler = ngx_mail_proxy_protocol_handler;
+        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+            ngx_mail_close_connection(c);
+        }
+        return;
+    }
+
     if (ngx_ssl_create_connection(ssl, c, 0) != NGX_OK) {
         ngx_mail_close_connection(c);
         return;
     }
 
     if (ngx_ssl_handshake(c) == NGX_AGAIN) {
-
-        s = c->data;
-
-        cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
 
         ngx_add_timer(c->read, cscf->timeout);
 

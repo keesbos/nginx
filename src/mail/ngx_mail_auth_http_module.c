@@ -1142,6 +1142,7 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
     ngx_mail_ssl_conf_t       *sslcf;
 #endif
     ngx_mail_core_srv_conf_t  *cscf;
+    ngx_str_t                 *client_addr;
 
     if (ngx_mail_auth_http_escape(pool, &s->login, &login) != NGX_OK) {
         return NULL;
@@ -1208,6 +1209,11 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
 #endif
 
     cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
+    if (s->connection->proxy_protocol_addr.len) {
+        client_addr = &s->connection->proxy_protocol_addr;
+    } else {
+        client_addr = &s->connection->addr_text;
+    }
 
     len = sizeof("GET ") - 1 + ahcf->uri.len + sizeof(" HTTP/1.0" CRLF) - 1
           + sizeof("Host: ") - 1 + ahcf->host_header.len + sizeof(CRLF) - 1
@@ -1221,7 +1227,7 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
                 + sizeof(CRLF) - 1
           + sizeof("Auth-Login-Attempt: ") - 1 + NGX_INT_T_LEN
                 + sizeof(CRLF) - 1
-          + sizeof("Client-IP: ") - 1 + s->connection->addr_text.len
+          + sizeof("Client-IP: ") - 1 + client_addr->len
                 + sizeof(CRLF) - 1
           + sizeof("Client-Host: ") - 1 + s->host.len + sizeof(CRLF) - 1
           + sizeof("Auth-SMTP-Helo: ") - 1 + s->smtp_helo.len + sizeof(CRLF) - 1
@@ -1287,8 +1293,7 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
                           s->login_attempt);
 
     b->last = ngx_cpymem(b->last, "Client-IP: ", sizeof("Client-IP: ") - 1);
-    b->last = ngx_copy(b->last, s->connection->addr_text.data,
-                       s->connection->addr_text.len);
+    b->last = ngx_copy(b->last, client_addr->data, client_addr->len);
     *b->last++ = CR; *b->last++ = LF;
 
     if (s->host.len) {

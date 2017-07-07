@@ -40,6 +40,7 @@ typedef struct {
     unsigned                ipv6only:1;
 #endif
     unsigned                so_keepalive:2;
+    unsigned                proxy_protocol:1;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
     int                     tcp_keepidle;
     int                     tcp_keepintvl;
@@ -55,6 +56,7 @@ typedef struct {
     ngx_mail_conf_ctx_t    *ctx;
     ngx_str_t               addr_text;
     ngx_uint_t              ssl;    /* unsigned   ssl:1; */
+    unsigned                proxy_protocol:1;
 } ngx_mail_addr_conf_t;
 
 typedef struct {
@@ -204,6 +206,8 @@ typedef struct {
     unsigned                esmtp:1;
     unsigned                auth_method:3;
     unsigned                auth_wait:1;
+    unsigned                ssl:1;
+    unsigned                proxy_protocol:1;
 
     ngx_str_t               login;
     ngx_str_t               passwd;
