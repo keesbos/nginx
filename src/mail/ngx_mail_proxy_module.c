@@ -354,6 +354,7 @@ ngx_mail_proxy_imap_handler(ngx_event_t *rev)
 
         s->connection->log->action = "sending LOGIN command to upstream";
 
+#if 0
         line.len = s->tag.len + sizeof("LOGIN ") - 1
                    + 1 + NGX_SIZE_T_LEN + 1 + 2;
         line.data = ngx_pnalloc(c->pool, line.len);
@@ -367,6 +368,21 @@ ngx_mail_proxy_imap_handler(ngx_event_t *rev)
                    - line.data;
 
         s->mail_state = ngx_imap_login;
+# else
+	line.len = s->tag.len + sizeof("LOGIN ") +
+			s->login.len + 1 +
+			s->passwd.len + 2 + 1;
+	line.data = ngx_pnalloc(c->pool, line.len);
+	if (line.data == NULL) {
+		ngx_mail_proxy_internal_server_error(s);
+		return;
+	}
+	line.len = ngx_sprintf(line.data, "%VLOGIN %V %V" CRLF,
+		&s->tag, &s->login, &s->passwd)
+		- line.data;
+
+        s->mail_state = ngx_imap_passwd;
+# endif
         break;
 
     case ngx_imap_login:
