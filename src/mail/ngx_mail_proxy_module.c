@@ -456,6 +456,7 @@ ngx_mail_proxy_smtp_handler(ngx_event_t *rev)
     ngx_mail_session_t        *s;
     ngx_mail_proxy_conf_t     *pcf;
     ngx_mail_core_srv_conf_t  *cscf;
+    ngx_str_t                 *client_addr;
 
     ngx_log_debug0(NGX_LOG_DEBUG_MAIL, rev->log, 0,
                    "mail proxy smtp auth handler");
@@ -523,11 +524,17 @@ ngx_mail_proxy_smtp_handler(ngx_event_t *rev)
         ngx_log_debug0(NGX_LOG_DEBUG_MAIL, rev->log, 0,
                        "mail proxy send xclient");
 
+        if (s->connection->proxy_protocol_addr.len) {
+            client_addr = &s->connection->proxy_protocol_addr;
+        } else {
+            client_addr = &s->connection->addr_text;
+        }
+
         s->connection->log->action = "sending XCLIENT to upstream";
 
         line.len = sizeof("XCLIENT ADDR= LOGIN= NAME="
                           CRLF) - 1
-                   + s->connection->addr_text.len + s->login.len + s->host.len;
+                   + client_addr->len + s->login.len + s->host.len;
 
 #if (NGX_HAVE_INET6)
         if (s->connection->sockaddr->sa_family == AF_INET6) {
@@ -549,8 +556,7 @@ ngx_mail_proxy_smtp_handler(ngx_event_t *rev)
         }
 #endif
 
-        p = ngx_copy(p, s->connection->addr_text.data,
-                     s->connection->addr_text.len);
+        p = ngx_copy(p, client_addr->data, client_addr->len);
 
         if (s->login.len) {
             p = ngx_cpymem(p, " LOGIN=", sizeof(" LOGIN=") - 1);
